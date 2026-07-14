@@ -118,6 +118,7 @@ def interpolate_missing_time(data_dict, nh, ny, nx):
 
     return data_dict
 
+
 def UKV2FSM_month(year, month, UKV_dir='/badc/ukmo-nwp/data/ukv-grib/', outdir='/home/users/leamhowe/sensecdt/users/leamhowe/UKV_nc/2016_2025_FSM_new/'):
     
     if not os.path.exists(outdir):
@@ -145,7 +146,7 @@ def UKV2FSM_month(year, month, UKV_dir='/badc/ukmo-nwp/data/ukv-grib/', outdir='
         'SD': np.full(shape, np.nan, dtype=np.float32),  # Added Snow Depth
     }
 
-    # Map Names for File 1 (These usually work fine by name)
+    # Map Names for File 1
     name_map_1 = {
         'Precipitation rate': 'Pr',
         'Pressure reduced to MSL': 'Ps',
@@ -155,8 +156,12 @@ def UKV2FSM_month(year, month, UKV_dir='/badc/ukmo-nwp/data/ukv-grib/', outdir='
         '10 metre wind direction': 'Wd' 
     }
 
-    # Map RAW IDs for File 2 (Bypasses "unknown" names)
-    # Format: (Discipline, Category, Number)
+    # Map RAW IDs for File 1 (Catches unnamed variables like Snow Fraction)
+    raw_map_1 = {
+        (0, 1, 230): 'fr'
+    }
+
+    # Map RAW IDs for File 2
     raw_map_2 = {
         (0, 4, 7): 'SW',    # Shortwave
         (0, 5, 3): 'LW',    # Longwave
@@ -194,23 +199,19 @@ def UKV2FSM_month(year, month, UKV_dir='/badc/ukmo-nwp/data/ukv-grib/', outdir='
             t_idx = 24 * d + h 
             step_req = offset + h 
 
-            # Extract 'fr' (Snow Fraction) - Legacy Index Method
-            try:
-                snow_idx = 369 + step_req 
-                if snow_idx < len(msgs1):
-                    data['fr'][t_idx,:,:] = msgs1[snow_idx].values[YMIN:YMAX, XMIN:XMAX]
-            except:
-                pass
-
-            # File 1 Extraction (Name based)
+            # File 1 Extraction (Name AND Raw ID based)
             for m in msgs1:
-                if m.step == step_req and m.name in name_map_1:
-                    data[name_map_1[m.name]][t_idx,:,:] = m.values[YMIN:YMAX, XMIN:XMAX]
+                if m.step == step_req:
+                    if m.name in name_map_1:
+                        data[name_map_1[m.name]][t_idx,:,:] = m.values[YMIN:YMAX, XMIN:XMAX]
+                    else:
+                        keys = (m.discipline, m.parameterCategory, m.parameterNumber)
+                        if keys in raw_map_1:
+                            data[raw_map_1[keys]][t_idx,:,:] = m.values[YMIN:YMAX, XMIN:XMAX]
 
-            # File 2 Extraction (Raw ID based - Handles Unknowns)
+            # File 2 Extraction (Raw ID based)
             for m in msgs2:
                 if m.step == step_req:
-                    # Create tuple of raw identifiers
                     keys = (m.discipline, m.parameterCategory, m.parameterNumber)
                     if keys in raw_map_2:
                         var_name = raw_map_2[keys]
@@ -244,6 +245,8 @@ def UKV2FSM_month(year, month, UKV_dir='/badc/ukmo-nwp/data/ukv-grib/', outdir='
         data['Ps'] = data['Ps'] - 101325 * (1 - (1 - z / 44307.69231)**5.253283)
         
         Qa = 0.622 * e / data['Ps']
+        
+        # Keeping your original, un-fudged extraction math!
         Rf = (1 - data['fr']) * data['Pr']
         Sf = data['fr'] * data['Pr']
 
